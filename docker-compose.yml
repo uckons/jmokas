@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jmo_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jakarta_max_kas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-JMO_Kas2024!}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jmo_backend
+    restart: unless-stopped
+    ports:
+      - "5700:5700"
+    environment:
+      PORT: 5700
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: jakarta_max_kas
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-JMO_Kas2024!}
+      JWT_SECRET: ${JWT_SECRET:-change_this_jwt_secret_key_very_long}
+      JWT_EXPIRES_IN: 8h
+      CLOUDFLARE_TURNSTILE_SECRET: ${CLOUDFLARE_TURNSTILE_SECRET:-your_turnstile_secret}
+      NODE_ENV: production
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5700}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+volumes:
+  postgres_data:
