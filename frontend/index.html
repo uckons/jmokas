@@ -893,7 +893,10 @@ let state = {
   categories: [],
   txPage: { kas_kecil: 1, kas_besar: 1 },
   auditPage: 1,
-  chartInstances: {}
+  chartInstances: {},
+  pendingBadgeInterval: null,
+  clockInterval: null,
+  isLoggingOut: false
 };
 
 // ═══════════════════════════════════════════════════
@@ -931,7 +934,15 @@ async function apiCall(endpoint, options = {}) {
   try {
     const r = await fetch(`${API}${endpoint}`, { ...options, headers: { ...headers, ...options.headers } });
     const data = await r.json();
-    if (r.status === 401) { doLogout(); return null; }
+
+    if (r.status === 401) {
+      const isAuthEndpoint = endpoint.startsWith('/auth/');
+      if (!isAuthEndpoint && state.token && !state.isLoggingOut) {
+        await doLogout({ silent: false, skipServerRequest: true, reason: 'Sesi habis, silakan login kembali' });
+      }
+      return data || null;
+    }
+
     return data;
   } catch (e) {
     console.error('API error:', e);
@@ -994,14 +1005,35 @@ async function doLogin() {
   }
 }
 
-async function doLogout() {
-  await apiCall('/auth/logout', { method: 'POST' });
+async function doLogout(options = {}) {
+  const { silent = false, skipServerRequest = false, reason = 'Anda telah logout' } = options;
+  if (state.isLoggingOut) return;
+
+  state.isLoggingOut = true;
+
+  try {
+    if (!skipServerRequest && state.token) {
+      const headers = { 'Authorization': `Bearer ${state.token}` };
+      await fetch(`${API}/auth/logout`, { method: 'POST', headers });
+    }
+  } catch (e) {
+    console.warn('Logout request failed:', e);
+  }
+
+  if (state.pendingBadgeInterval) {
+    clearInterval(state.pendingBadgeInterval);
+    state.pendingBadgeInterval = null;
+  }
+
   localStorage.removeItem('jmo_token');
   localStorage.removeItem('jmo_user');
-  state.token = null; state.user = null;
+  state.token = null;
+  state.user = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('loginPage').style.display = 'flex';
-  toast('Anda telah logout', 'info');
+
+  if (!silent) toast(reason, 'info');
+  state.isLoggingOut = false;
 }
 
 // ═══════════════════════════════════════════════════
@@ -1018,7 +1050,8 @@ function initApp() {
   navigate('dashboard');
   
   // Refresh pending badge periodically
-  setInterval(refreshPendingBadge, 60000);
+  if (state.pendingBadgeInterval) clearInterval(state.pendingBadgeInterval);
+  state.pendingBadgeInterval = setInterval(refreshPendingBadge, 60000);
 }
 
 function updateSidebarUser() {
@@ -2304,7 +2337,8 @@ window.addEventListener('DOMContentLoaded', () => {
     initApp();
   }
   // Update clock
-  setInterval(updateTopbarDate, 60000);
+  if (state.clockInterval) clearInterval(state.clockInterval);
+  state.clockInterval = setInterval(updateTopbarDate, 60000);
 });
 </script>
 </body>
