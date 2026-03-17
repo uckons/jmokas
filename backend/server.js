@@ -10,6 +10,21 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5700;
 
+// Trust the first reverse proxy (e.g. Nginx/PM2) so req.ip and rate limiting
+// work correctly when X-Forwarded-For headers are present.
+const trustProxySetting = process.env.TRUST_PROXY;
+if (typeof trustProxySetting === 'string') {
+  if (trustProxySetting === 'true' || trustProxySetting === 'false') {
+    app.set('trust proxy', trustProxySetting === 'true');
+  } else if (!Number.isNaN(Number(trustProxySetting))) {
+    app.set('trust proxy', Number(trustProxySetting));
+  } else {
+    app.set('trust proxy', trustProxySetting);
+  }
+} else {
+  app.set('trust proxy', 1);
+}
+
 // Security middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
