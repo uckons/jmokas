@@ -39,15 +39,29 @@ app.use(cors({
 }));
 
 // Rate limiting
+function getClientKey(req) {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim();
+
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+
+  return req.ip;
+}
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 200,
+  keyGenerator: getClientKey,
   message: { success: false, message: 'Terlalu banyak request, coba lagi nanti' }
 });
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  keyGenerator: getClientKey,
   message: { success: false, message: 'Terlalu banyak percobaan login, coba lagi dalam 15 menit' }
 });
 
