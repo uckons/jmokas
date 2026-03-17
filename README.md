@@ -77,11 +77,11 @@ Buka: **http://localhost:5700**
 | Role | Username | Password |
 |------|----------|----------|
 | Admin | `admin` | `Admin@12345` |
-| Bendahara | `bendahara1` | `xx!User@*****!!XX` |
-| Approver 1 | `approver1` | `xx!User@*****!!XX` |
-| Approver 2 | `approver2` | `xx!User@*****!!XX` |
-| Approver 3 | `approver3` | `xx!User@*****!!XX` |
-| Viewer | `viewer1` | `xx!User@*****!!XX` |
+| Bendahara | `bendahara1` | `User@12345` |
+| Approver 1 | `approver1` | `User@12345` |
+| Approver 2 | `approver2` | `User@12345` |
+| Approver 3 | `approver3` | `User@12345` |
+| Viewer | `viewer1` | `User@12345` |
 
 > Segera ganti semua password setelah login pertama!
 
