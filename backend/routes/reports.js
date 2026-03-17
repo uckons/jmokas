@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 const moment = require('moment');
+
+const nonViewerOnly = authorize('admin', 'bendahara', 'approver');
 
 // GET dashboard summary
 router.get('/summary', authenticate, async (req, res) => {
@@ -121,7 +123,7 @@ router.get('/monthly', authenticate, async (req, res) => {
 });
 
 // GET audit logs
-router.get('/audit', authenticate, async (req, res) => {
+router.get('/audit', authenticate, nonViewerOnly, async (req, res) => {
   const { page = 1, limit = 50, action, userId, entityType, startDate, endDate } = req.query;
   const offset = (page - 1) * limit;
 
@@ -163,7 +165,7 @@ router.get('/audit', authenticate, async (req, res) => {
 });
 
 // GET categories
-router.get('/categories', authenticate, async (req, res) => {
+router.get('/categories', authenticate, nonViewerOnly, async (req, res) => {
   const { type } = req.query;
   try {
     const result = await pool.query(
@@ -177,7 +179,7 @@ router.get('/categories', authenticate, async (req, res) => {
 });
 
 // POST create category
-router.post('/categories', authenticate, async (req, res) => {
+router.post('/categories', authenticate, nonViewerOnly, async (req, res) => {
   const { name, type, description, color, icon } = req.body;
   try {
     const result = await pool.query(
