@@ -710,6 +710,11 @@ textarea.form-input{resize:vertical;min-height:90px}
           <label class="form-label">Catatan Tambahan</label>
           <textarea id="txNotes" class="form-input" rows="2" placeholder="Informasi tambahan (opsional)..."></textarea>
         </div>
+        <div class="form-group-inline col-span-2">
+          <label class="form-label">Attachment (maks. 4 file, min. 1 file) <span style="color:var(--red)">*</span></label>
+          <input type="file" id="txAttachments" class="form-input" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" onchange="validateAttachments()">
+          <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Format: JPG, PNG, WEBP, PDF. Maksimal 5MB per file.</div>
+        </div>
       </div>
 
       <!-- Approvers section (kas besar expense only) -->
@@ -920,7 +925,8 @@ function debounce(fn, delay) {
 }
 
 async function apiCall(endpoint, options = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+  const isFormData = options.body instanceof FormData;
+  const headers = isFormData ? {} : { 'Content-Type': 'application/json' };
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
   try {
     const r = await fetch(`${API}${endpoint}`, { ...options, headers: { ...headers, ...options.headers } });
@@ -1489,6 +1495,7 @@ async function openTxModal(defaultKasType = 'kas_kecil') {
   document.getElementById('txDescription').value = '';
   document.getElementById('txNotes').value = '';
   document.getElementById('txReference').value = '';
+  document.getElementById('txAttachments').value = '';
   
   await loadCategoriesForModal(defaultKasType);
   onKasTypeChange();
@@ -1542,6 +1549,25 @@ function validateApprovers() {
   return true;
 }
 
+function validateAttachments() {
+  const input = document.getElementById('txAttachments');
+  const files = Array.from(input.files || []);
+  if (files.length > 4) {
+    toast('Maksimal 4 attachment', 'error');
+    input.value = '';
+    return false;
+  }
+
+  const tooLarge = files.find(f => f.size > 5 * 1024 * 1024);
+  if (tooLarge) {
+    toast('Ukuran setiap attachment maksimal 5MB', 'error');
+    input.value = '';
+    return false;
+  }
+
+  return true;
+}
+
 async function submitTransaction() {
   const id = document.getElementById('txId').value;
   const kasType = document.getElementById('txKasType').value;
@@ -1552,9 +1578,17 @@ async function submitTransaction() {
   const transactionDate = document.getElementById('txDate').value;
   const referenceNumber = document.getElementById('txReference').value.trim();
   const notes = document.getElementById('txNotes').value.trim();
+  const attachmentInput = document.getElementById('txAttachments');
+  const attachments = Array.from(attachmentInput.files || []);
 
   if (!amount || !description || !transactionDate) {
     toast('Jumlah, keterangan, dan tanggal harus diisi', 'error');
+    return;
+  }
+
+  if (!validateAttachments()) return;
+  if (!id && attachments.length < 1) {
+    toast('Minimal 1 attachment wajib diupload', 'error');
     return;
   }
 
@@ -1572,11 +1606,29 @@ async function submitTransaction() {
   btn.disabled = true;
   btn.textContent = 'Menyimpan...';
 
-  const payload = { kasType, transactionType, categoryId: categoryId||null, amount: parseFloat(amount), description, transactionDate, referenceNumber: referenceNumber||null, notes: notes||null, approverIds };
   const endpoint = id ? `/transactions/${id}` : '/transactions';
   const method = id ? 'PUT' : 'POST';
 
-  const data = await apiCall(endpoint, { method, body: JSON.stringify(payload) });
+  let requestBody;
+  if (id) {
+    const payload = { kasType, transactionType, categoryId: categoryId||null, amount: parseFloat(amount), description, transactionDate, referenceNumber: referenceNumber||null, notes: notes||null, approverIds };
+    requestBody = JSON.stringify(payload);
+  } else {
+    const formData = new FormData();
+    formData.append('kasType', kasType);
+    formData.append('transactionType', transactionType);
+    formData.append('categoryId', categoryId || '');
+    formData.append('amount', parseFloat(amount));
+    formData.append('description', description);
+    formData.append('transactionDate', transactionDate);
+    formData.append('referenceNumber', referenceNumber || '');
+    formData.append('notes', notes || '');
+    if (approverIds) formData.append('approverIds', JSON.stringify(approverIds));
+    attachments.forEach((file) => formData.append('attachments', file));
+    requestBody = formData;
+  }
+
+  const data = await apiCall(endpoint, { method, body: requestBody });
   btn.disabled = false;
   btn.textContent = 'Simpan Transaksi';
 
@@ -1682,6 +1734,12 @@ async function openTxDetail(id) {
         <div class="info-value">${tx.description}</div>
       </div>
       ${tx.notes ? `<div style="grid-column:span 2"><div class="info-label">Catatan</div><div class="info-value">${tx.notes}</div></div>` : ''}
+      ${(() => {
+        let attachments = [];
+        try { attachments = tx.attachment_url ? JSON.parse(tx.attachment_url) : []; } catch(e) { attachments = tx.attachment_url ? [tx.attachment_url] : []; }
+        if (!Array.isArray(attachments) || attachments.length === 0) return '';
+        return `<div style="grid-column:span 2"><div class="info-label">Attachment</div><div class="info-value">${attachments.map((url, idx) => `<div><a href="${API.replace('/api','')}${url}" target="_blank" rel="noopener">Attachment ${idx + 1}</a></div>`).join('')}</div></div>`;
+      })()}
       <div>
         <div class="info-label">Dibuat pada</div>
         <div class="info-value">${fmtDateTime(tx.created_at)}</div>

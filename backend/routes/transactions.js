@@ -5,6 +5,42 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { createAuditLog } = require('../utils/audit');
 const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
+const fs = require('fs');
+const multer = require('multer');
+const path = require('path');
+
+
+const uploadsDir = path.join(__dirname, '..', 'uploads', 'transactions');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    cb(null, `${Date.now()}-${uuidv4()}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { files: 4, fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/pdf'
+    ];
+
+    if (!allowedMimes.includes(file.mimetype)) {
+      return cb(new Error('Format attachment tidak didukung. Gunakan JPG, PNG, WEBP, atau PDF'));
+    }
+
+    cb(null, true);
+  }
+});
 
 // Generate transaction number
 function generateTxNumber(kasType, txType) {
@@ -105,15 +141,30 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST create transaction
-router.post('/', authenticate, authorize('admin', 'bendahara'), async (req, res) => {
+router.post('/', authenticate, authorize('admin', 'bendahara'), upload.array('attachments', 4), async (req, res) => {
   const {
     kasType, transactionType, categoryId, amount, description,
-    referenceNumber, transactionDate, notes, approverIds
+    referenceNumber, transactionDate, notes
   } = req.body;
+
+  let approverIds = req.body.approverIds;
+  if (typeof approverIds === 'string') {
+    try {
+      approverIds = JSON.parse(approverIds);
+    } catch (e) {
+      approverIds = [];
+    }
+  }
 
   if (!kasType || !transactionType || !amount || !description || !transactionDate) {
     return res.status(400).json({ success: false, message: 'Field wajib tidak lengkap' });
   }
+
+  if (!req.files || req.files.length < 1) {
+    return res.status(400).json({ success: false, message: 'Minimal 1 attachment wajib diupload' });
+  }
+
+  const attachmentUrls = req.files.slice(0, 4).map((file) => `/uploads/transactions/${file.filename}`);
 
   // Kas besar expense requires 3 approvers
   if (kasType === 'kas_besar' && transactionType === 'expense') {
@@ -134,9 +185,9 @@ router.post('/', authenticate, authorize('admin', 'bendahara'), async (req, res)
 
     const txResult = await client.query(
       `INSERT INTO kas_transactions
-       (transaction_number, kas_type, transaction_type, category_id, amount, description, reference_number, transaction_date, status, created_by, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [txNumber, kasType, transactionType, categoryId || null, amount, description, referenceNumber || null, transactionDate, status, req.user.id, notes || null]
+       (transaction_number, kas_type, transaction_type, category_id, amount, description, reference_number, transaction_date, status, created_by, notes, attachment_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [txNumber, kasType, transactionType, categoryId || null, amount, description, referenceNumber || null, transactionDate, status, req.user.id, notes || null, JSON.stringify(attachmentUrls)]
     );
 
     const tx = txResult.rows[0];
@@ -368,6 +419,23 @@ router.delete('/:id', authenticate, async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
+});
+
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ success: false, message: 'Maksimal 4 attachment' });
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ success: false, message: 'Ukuran file maksimal 5MB per attachment' });
+    }
+  }
+
+  if (err && err.message && err.message.includes('Format attachment')) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+
+  return next(err);
 });
 
 module.exports = router;
